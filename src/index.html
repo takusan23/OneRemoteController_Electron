@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="jp" style="height:100%;width:100%">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>One Remote Controller</title>
+    <!--Import Google Icon Font　これ httpsにすると動く-->
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <!--Import materialize.css-->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css">
+</head>
+
+<body>
+
+    <!-- Card -->
+    <div class="container" style="max-width: 100%;height: auto;">
+        <div class="">
+            <div class="col s12 m5">
+                <div class="card-panel green">
+                    <span class="white-text">
+                        <h3>One Remote Controller</h3>
+                        <br>
+                        <p>Raspberry Piで家電操作できます。</p>
+                        <br>
+
+                        <a class="waves-effect waves-light btn" onclick="connectionWebSocket()"><i
+                                class="material-icons left">power</i>起動</a>
+                        <a class="waves-effect waves-light btn" onclick="closeWebSocket()"><i
+                                class="material-icons left">close</i>終了</a>
+                        <a class="waves-effect waves-light btn" onclick="sendRemoteControll('light_off')"><i
+                                class="material-icons left">highlight</i>照明OFFテスト</a>
+
+                        <p>Mastodonの設定。送信、受信ともに同じMastodonのインスタンスである必要があります。
+                            <br>
+                            受信用、送信用同じアカウントで構いません。
+                        </p>
+                        <div class="input-field col s12">
+                            <input placeholder="Mastodonのインスタンス名" value="" id="mastodon_instance" type="text"
+                                class="validate">
+                            <input placeholder="アクセストークン" value="" id="mastodon_access_token" type="password"
+                                class="validate">
+                            <input placeholder="MastodonのアカウントのID" value="" id="mastodon_account_id" type="text"
+                                class="validate">
+                        </div>
+                        <br>
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+<script>
+
+    //起動時に読み込む
+    window.onload = function (e) {
+        document.getElementById('mastodon_instance').value = localStorage.getItem('instance');
+        document.getElementById('mastodon_access_token').value = localStorage.getItem('access_token');
+        document.getElementById('mastodon_account_id').value = localStorage.getItem('account_id');
+    }
+
+    var webSocket;
+
+    function connectionWebSocket() {
+        //必要なもの
+        var mastodon_instance = document.getElementById('mastodon_instance').value;
+        var mastodon_access_token = document.getElementById('mastodon_access_token').value;
+        var account_id = document.getElementById('mastodon_account_id').value;
+        //WebSocket接続
+        //今回はWebSocketのリンクを標準にしてますが、一部のインスタンスではストリーミングAPI用に別のリンクが設定されてる場合があります。
+        // その時は api/v1/instance を叩いて urls の streaming_api の値を入れてください。
+        var websocketUri = `wss://${mastodon_instance}/api/v1/streaming/?stream=direct&access_token=${mastodon_access_token}`
+        webSocket = new WebSocket(websocketUri);
+
+        //インスタンス名を保存する
+        localStorage.setItem('instance', mastodon_instance);
+        localStorage.setItem('access_token', mastodon_access_token);
+        localStorage.setItem('account_id', account_id);
+        // 接続を開く
+        webSocket.addEventListener('open', function (event) {
+            alert('接続を開始しました。')
+        });
+
+        // メッセージを待ち受ける
+        webSocket.addEventListener('message', function (event) {
+            //JSONパース
+            var obj = JSON.parse(event.data)
+            //一度文字列にする
+            var payload = obj.payload
+            var payloadObject = JSON.parse(payload)
+
+            //内容、アカウントID
+            var content = payloadObject.last_status.content
+            var id = payloadObject.last_status.account.id
+
+            //比較
+            //ただし、自分のIDだと返信のときも反応してしまうのでON/OFFがあったときだけ実行
+            if (content.match('OFF') || content.match('ON')) {
+                if (id == account_id) {
+                    //同じだったら内容取得
+                    //面倒なので、照明、エアコンの文字があって、ON、OFFがあればいいとします。
+                    if (content.match('照明')) {
+                        if (content.match('ON')) {
+                            sendRemoteControll('light_on')
+                        } else {
+                            sendRemoteControll('light_off')
+                        }
+                    } else if (content.match('エアコン')) {
+                        if (content.match('ON')) {
+                            sendRemoteControll('air_on')
+                        } else {
+                            sendRemoteControll('air_off')
+                        }
+                    } else if (content.match('扇風機')) {
+                        if (content.match('ON')) {
+                            sendRemoteControll('fan_on')
+                        } else {
+                            sendRemoteControll('fan_off')
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function closeWebSocket() {
+        webSocket.close()
+    }
+
+    //赤外線送信
+    //commandName light_on light_off air_on air_off fan_on fan_off
+    function sendRemoteControll(name) {
+        //ターミナル。これで赤外線送信コマンドを入力
+        const exec = require('child_process').exec;
+        //cdでディレクトリ移動してから赤外線送信コマンドをいれる
+        var command = `cd /home/pi/ ; python3 irrp.py -p -g17 -f codes ${name}`;
+        exec(command, (err, stdout, stderr) => {
+            if (err) {
+                postStatus(`赤外線の送信に失敗しました・・・😥 : ${err}`);
+            } else {
+                postStatus('赤外線送信できました！🥳');
+            }
+        });
+    }
+
+    //Mastodonに投稿
+    //ダイレクトメッセージで送信します
+    function postStatus(status) {
+        //必要なもの
+        var mastodon_instance = document.getElementById('mastodon_instance').value;
+        var mastodon_access_token = document.getElementById('mastodon_access_token').value;
+        var xmlHttpRequest = new XMLHttpRequest();
+        xmlHttpRequest.addEventListener("load", function (event) {
+
+        }, false);
+        xmlHttpRequest.responseType = "json";
+        xmlHttpRequest.open("POST", `https://${mastodon_instance}/api/v1/statuses?access_token=${mastodon_access_token}`);
+        xmlHttpRequest.setRequestHeader("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+        xmlHttpRequest.send("status=" + encodeURIComponent(status) + "&visibility=direct");
+    }
+
+</script>
+
+</html>

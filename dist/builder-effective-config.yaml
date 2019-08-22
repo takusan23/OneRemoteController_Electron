@@ -1,0 +1,9 @@
+directories:
+  output: dist
+  buildResources: build
+productName: OneRemoteController
+appId: io.github.takusan23
+linux:
+  target: rpm
+  icon: ./src/images/icon.png
+electronVersion: 6.0.0
