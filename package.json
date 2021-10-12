@@ -9,7 +9,7 @@
   "author": "takusan23",
   "license": "Apache License 2.0",
   "devDependencies": {
-    "electron": "^6.0.0"
+    "electron": "^11.5.0"
   },
   "build": {
     "productName": "OneRemoteController",
